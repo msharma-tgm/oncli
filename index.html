@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Remote Control</title>
+<style>
+canvas { border:1px solid #000; display:none; }
+#lockButton { margin-top:10px; display:none; font-size:16px; }
+#auth { margin-bottom:10px; }
+</style>
+</head>
+<body>
+
+<div id="auth">
+  <input id="password" type="password" placeholder="Enter password">
+  <button id="login">Unlock</button>
+  <span id="status"></span>
+</div>
+
+<canvas id="canvas" width="800" height="600"></canvas><br>
+<button id="lockButton">Lock Screen</button>
+
+<script>
+const PASSWORD = "123";
+const authDiv = document.getElementById('auth');
+const passwordInput = document.getElementById('password');
+const loginBtn = document.getElementById('login');
+const statusSpan = document.getElementById('status');
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const lockButton = document.getElementById('lockButton');
+
+let pointerX = canvas.width/2;
+let pointerY = canvas.height/2;
+let dx=0, dy=0, lastSent=0;
+const THROTTLE_MS = 16;
+let socket = null;
+
+// Login button
+loginBtn.onclick = () => {
+  socket = new WebSocket('ws://localhost:8080');
+  socket.binaryType = 'arraybuffer';
+
+  socket.onopen = () => {
+    socket.send(JSON.stringify({password:PASSWORD}));
+  };
+
+  socket.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.status==='ok') {
+        authDiv.style.display='none';
+        canvas.style.display='block';
+        lockButton.style.display='inline';
+        initApp();
+      } else {
+        statusSpan.textContent = "❌ "+data.msg;
+        socket.close();
+      }
+    } catch {
+      handleBinary(event.data);
+    }
+  };
+};
+
+// Initialize pointer lock, mouse, keyboard
+function initApp() {
+  canvas.addEventListener('click', ()=>canvas.requestPointerLock());
+
+  document.addEventListener('pointerlockchange', () => {
+    if(document.pointerLockElement===canvas) document.addEventListener('mousemove',onMouseMove);
+    else document.removeEventListener('mousemove',onMouseMove);
+  });
+
+  function onMouseMove(e){ dx+=e.movementX; dy+=e.movementY; }
+
+  function sendMouse() {
+    const now = Date.now();
+    if((dx!==0||dy!==0) && now-lastSent>=THROTTLE_MS){
+      const buffer = new ArrayBuffer(4);
+      const view = new DataView(buffer);
+      view.setInt16(0, dx);
+      view.setInt16(2, dy);
+      socket.send(buffer);
+      dx=0; dy=0; lastSent=now;
+    }
+    requestAnimationFrame(sendMouse);
+  }
+  sendMouse();
+
+  document.addEventListener('keydown', e => {
+    e.preventDefault();
+    const buffer = new ArrayBuffer(2);
+    const view = new DataView(buffer);
+    view.setUint8(0, e.keyCode);
+    view.setUint8(1, 1);
+    socket.send(buffer);
+  });
+
+  document.addEventListener('keyup', e => {
+    e.preventDefault();
+    const buffer = new ArrayBuffer(2);
+    const view = new DataView(buffer);
+    view.setUint8(0, e.keyCode);
+    view.setUint8(1, 0);
+    socket.send(buffer);
+  });
+
+  lockButton.addEventListener('click', () => {
+    socket.send(JSON.stringify({cmd:'lock'}));
+  });
+}
+
+function handleBinary(buffer){
+  if(buffer.byteLength===4){
+    const view = new DataView(buffer);
+    pointerX+=view.getInt16(0);
+    pointerY+=view.getInt16(2);
+    drawPointer();
+  } else if(buffer.byteLength===2){
+    // ignore for client display
+  }
+}
+
+function drawPointer(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.beginPath();
+  ctx.arc(pointerX,pointerY,5,0,Math.PI*2);
+  ctx.fillStyle='red'; ctx.fill();
+}
+</script>
+
+</body>
+</html>
