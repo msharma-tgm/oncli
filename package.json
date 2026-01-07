@@ -1,0 +1,14 @@
+{
+  "name": "remote-control",
+  "version": "1.0.0",
+  "description": "Realtime mouse + keyboard relay with screen lock",
+  "main": "server.js",
+  "scripts": {
+    "start-server": "node server.js",
+    "start-receiver": "node receiver.js"
+  },
+  "dependencies": {
+    "ws": "^8.15.0",
+    "robotjs": "^0.6.0"
+  }
+}
